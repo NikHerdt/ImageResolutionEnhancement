@@ -7,6 +7,7 @@ import os
 
 # Function to read in image and metadata
 def read_image(image_path):
+    print(f"Reading image from {image_path}")
     image = sitk.ReadImage(image_path)
     
     metadata = {}
@@ -18,6 +19,7 @@ def read_image(image_path):
 
 # Function to preprocess image
 def preprocess_image(image):
+    print("Preprocessing image")
     # Convert to grayscale if the image is in color
     if len(image.shape) == 3:
         gray_img = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
@@ -57,6 +59,7 @@ def preprocess_image(image):
 
 # Function to add noise to the isolated ultrasound image
 def add_noise(image):
+    print("Adding noise to the image")
     row, col = image.shape
     noise = np.random.rayleigh(1, (row, col)).astype(np.uint8)
     noisy_image = image + image * noise
@@ -64,19 +67,28 @@ def add_noise(image):
 
 # Function to preprocess and add noise to all images in the folders specified by metadata.csv
 def process_all_images(metadata_csv):
+    row_count = 0  # Initialize row counter
     for index, row in metadata_csv.iterrows():
+        if row_count >= 2:  # Stop after processing 2 rows
+            break
         folder_path = row['File Location']
+        print(f"Processing folder: {folder_path}")
         for filename in os.listdir(folder_path):
             if filename.endswith('.dcm'):
                 image_path = os.path.join(folder_path, filename)
+                print(f"Processing file: {filename}")
                 image, _ = read_image(image_path)
                 preprocessed_image = preprocess_image(image)
                 noisy_image = add_noise(preprocessed_image)
                 
-                # Save the noisy image to Noisy Images folder
-                save_path = os.path.join('Noisy Images', filename)
+                # Save the noisy image to Noisy Images folder without the '.dcm' tag
+                save_filename = filename.replace('.dcm', '') + '.png'
+                save_path = '/Volumes/argon_home/manifest-1729788671964/Noisy-Images/' + save_filename
+                print(f"Saving noisy image to {save_path}")
                 cv2.imwrite(save_path, noisy_image)
+        row_count += 1  # Increment row counter
 
 # Read in metadata.csv to get path to folders containing images
-metadata_csv = pd.read_csv('metadata.csv')
+metadata_csv = pd.read_csv('/Volumes/argon_home/manifest-1729788671964/metadata.csv')
+print("Metadata loaded")
 process_all_images(metadata_csv)
