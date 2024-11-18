@@ -8,7 +8,11 @@ import os
 # Function to read in image and metadata
 def read_image(image_path):
     print(f"Reading image from {image_path}")
-    image = sitk.ReadImage(image_path)
+    try:
+        image = sitk.ReadImage(image_path)
+    except Exception as e:
+        print(f"Failed to read image {image_path}: {e}")
+        return None, None
     
     metadata = {}
     for key in image.GetMetaDataKeys():
@@ -67,10 +71,7 @@ def add_noise(image):
 
 # Function to preprocess and add noise to all images in the folders specified by metadata.csv
 def process_all_images(metadata_csv):
-    row_count = 0  # Initialize row counter
     for index, row in metadata_csv.iterrows():
-        if row_count >= 2:  # Stop after processing 2 rows
-            break
         folder_path = row['File Location']
         print(f"Processing folder: {folder_path}")
         for filename in os.listdir(folder_path):
@@ -78,15 +79,16 @@ def process_all_images(metadata_csv):
                 image_path = os.path.join(folder_path, filename)
                 print(f"Processing file: {filename}")
                 image, _ = read_image(image_path)
+                if image is None:
+                    continue
                 preprocessed_image = preprocess_image(image)
                 noisy_image = add_noise(preprocessed_image)
                 
                 # Save the noisy image to Noisy Images folder without the '.dcm' tag
                 save_filename = filename.replace('.dcm', '') + '.png'
-                save_path = '/Volumes/argon_home/manifest-1729788671964/Noisy-Images/' + save_filename
+                save_path = '/Users/herdt/Library/CloudStorage/OneDrive-UniversityofIowa/Year 4/Sem 1/Deep Learning in Medicla Imaging/ImageResolutionEnhancement/Noisy Images' + save_filename
                 print(f"Saving noisy image to {save_path}")
                 cv2.imwrite(save_path, noisy_image)
-        row_count += 1  # Increment row counter
 
 # Read in metadata.csv to get path to folders containing images
 metadata_csv = pd.read_csv('/Volumes/argon_home/manifest-1729788671964/metadata.csv')
