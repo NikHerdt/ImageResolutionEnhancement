@@ -1,75 +1,108 @@
 import torch
 import numpy as np
+from PIL import Image
+import torchvision.models as models
+import torch.nn as nn
+import torch.optim as optim
 import pandas as pd
-import matplotlib.pyplot as plt
-from torch import nn
-from torchvision.models import resnet18, ResNet18_Weights
-from sklearn.model_selection import train_test_split
-from torchvision import transforms
-import os
-import pydicom
-from pydicom.pixel_data_handlers.util import apply_voi_lut
 
-# Set up data split
-image_paths = pd.read_csv('/Users/herdt/manifest-1729788671964/image_paths.csv')
+output_save_path = "/Users/herdt/manifest-1729788671964/output_training_files"
 
-# Output directory
-output_dir = '/Users/herdt/manifest-1729788671964/output_training_files'
+# Define the data
+df = pd.read_csv("/Users/herdt/manifest-1729788671964/image-paths.csv")
+train_data_path = df['training-images']
+test_data_path = df['testing-images']
 
-# Split data into training and testing
-train_paths, test_paths = train_test_split(image_paths, test_size=0.2)
+# Turn the data into a tensor
+def load_image(path):
+    img = Image.open(path)
+    img = img.resize((256, 256))
+    img = np.array(img)
+    img = img / 255.0
+    img = img.transpose(2, 0, 1)
+    img = torch.tensor(img, dtype=torch.float32)
+    return img
 
-# Set up data loader
-class ImageDataset(torch.utils.data.Dataset):
-    def __init__(self, image_paths, transform):
-        self.image_paths = image_paths
-        self.transform = transform
+# Load the data
+train_data = [load_image(path) for path in train_data_path]
+test_data = [load_image(path) for path in test_data_path]
 
-    def __len__(self):
-        return len(self.image_paths)
+# Define the resnet model 
+class DenoisingResNet(nn.Module):
+    def __init__(self):
+        super(DenoisingResNet, self).__init__()
+        self.resnet = models.resnet18(pretrained=False)
+        self.resnet.conv1 = nn.Conv2d(256, 64, kernel_size=7, stride=2, padding=3, bias=False)
+        self.resnet.fc = nn.Linear(self.resnet.fc.in_features, 256 * 256 * 3)
 
-    def __getitem__(self, idx):
-        image_path = self.image_paths.iloc[idx]['Save Path']  # Use the 'input_image' column
-        image = pydicom.dcmread(image_path).pixel_array
-        image = apply_voi_lut(image, pydicom.dcmread(image_path))
-        image = self.transform(image)
-        return image
+    def forward(self, x):
+        x = self.resnet(x)
+        x = x.view(-1, 256, 256, 3)
+        return x
 
-transform = transforms.Compose([
-    transforms.ToPILImage(),
-    transforms.Resize((224, 224)),
-    transforms.ToTensor()
-])
+resnet_model = DenoisingResNet()
 
-train_dataset = ImageDataset(train_paths, transform)
-test_dataset = ImageDataset(test_paths, transform)
+# Define the gan model
+class DenoisingGAN(nn.Module):
+    def __init__(self):
+        super(DenoisingGAN, self).__init__()
+        self.generator = DenoisingResNet()
+        self.discriminator = models.resnet18(pretrained=False)
+        self.discriminator.conv1 = nn.Conv2d(256, 64, kernel_size=7, stride=2, padding=3, bias=False)
+        self.discriminator.fc = nn.Linear(self.discriminator.fc.in_features, 1)
 
-train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=32, shuffle=True)
-test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=32, shuffle=False)
+    def forward(self, x):
+        x = self.generator(x)
+        x = self.discriminator(x)
+        return x
+    
+gan_model = DenoisingGAN()
 
-# Set up model
-model = resnet18(weights=ResNet18_Weights.IMAGENET1K_V1)
+# Train the resnet model
+resnet_criterion = nn.MSELoss()
+resnet_optimizer = optim.Adam(resnet_model.parameters(), lr=0.001)
 
-# Freeze all layers except the last one
-for param in model.parameters():
-    param.requires_grad = False
-
-model.fc = nn.Linear(512, 1)
-
-# Set up loss function and optimizer
-criterion = nn.MSELoss()
-optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
-
-# Train model
-model.train()
-
-for epoch in range(5):
-    for images in train_loader:
-        optimizer.zero_grad()
-        outputs = model(images)
-        loss = criterion(outputs, torch.ones(images.size(0), 1))  # Assuming target is a tensor of ones
+for epoch in range(100):
+    for data in train_data:
+        resnet_optimizer.zero_grad()
+        output = resnet_model(data)
+        loss = resnet_criterion(output, data)
         loss.backward()
-        optimizer.step()
+        resnet_optimizer.step()
+        print(f"Epoch {epoch}, Loss {loss.item()}")
 
-# Save model
-torch.save(model.state_dict(), os.path.join(output_dir, 'model.pth'))
+# Train the gan model
+gan_criterion = nn.BCEWithLogitsLoss()
+gan_optimizer = optim.Adam(gan_model.parameters(), lr=0.001)
+
+for epoch in range(100):
+    for data in train_data:
+        gan_optimizer.zero_grad()
+        output = gan_model(data)
+        loss = gan_criterion(output, torch.ones_like(output))
+        loss.backward()
+        gan_optimizer.step()
+        print(f"Epoch {epoch}, Loss {loss.item()}")
+
+# Save the models
+torch.save(resnet_model.state_dict(), f"{output_save_path}/resnet_model.pth")
+torch.save(gan_model.state_dict(), f"{output_save_path}/gan_model.pth")
+
+# Test the models
+resnet_model.eval()
+gan_model.eval()
+
+resnet_loss = 0
+gan_loss = 0
+
+for data in test_data:
+    output = resnet_model(data)
+    resnet_loss += resnet_criterion(output, data).item()
+    output = gan_model(data)
+    gan_loss += gan_criterion(output, torch.ones_like(output)).item()
+
+resnet_loss /= len(test_data)
+gan_loss /= len(test_data)
+
+print(f"ResNet Loss: {resnet_loss}")
+print(f"GAN Loss: {gan_loss}")
