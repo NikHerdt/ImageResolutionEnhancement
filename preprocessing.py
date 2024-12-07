@@ -59,7 +59,7 @@ def preprocess_image(image):
     # Apply the mask to keep only the filtered regions
     isolated_ultrasound = cv2.bitwise_and(gray_img, gray_img, mask=ultrasound_mask)
 
-    return isolated_ultrasound
+    return isolated_ultrasound, len(filtered_contours)
 
 # Function to add noise to the isolated ultrasound image
 def add_noise(image):
@@ -81,7 +81,10 @@ def process_all_images(metadata_csv):
                 image, _ = read_image(image_path)
                 if image is None:
                     continue
-                preprocessed_image = preprocess_image(image)
+                preprocessed_image, contour_count = preprocess_image(image)
+                if contour_count > 1:
+                    print(f"Skipping image {filename} due to multiple contours")
+                    continue
                 noisy_image = add_noise(preprocessed_image)
                 
                 # Save the noisy image to Noisy Images folder without the '.dcm' tag
