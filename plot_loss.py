@@ -11,7 +11,7 @@ def read_loss_data(file_path):
     return loss_data
 
 # Path to the file containing loss data
-file_path = 'Models/gan_loss'
+file_path = 'Models/training_unet.log'
 
 # Read the loss data from the file
 loss_data = read_loss_data(file_path)
@@ -19,7 +19,7 @@ loss_data = read_loss_data(file_path)
 # Plotting the loss data
 plt.figure(figsize=(10, 5))
 plt.plot(loss_data, linestyle='-', color='b')
-plt.title('GAN Loss')
+plt.title('Unet Loss')
 plt.xlabel('Iteration')
 plt.ylabel('Loss')
 plt.grid(True)
